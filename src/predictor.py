@@ -1,0 +1,354 @@
+# ============================================================
+# FRAUD PREDICTION + ANOMALY DETECTION + EXPLAINABILITY MODULE
+# ============================================================
+
+from pathlib import Path
+import json
+import joblib
+import numpy as np
+import pandas as pd
+
+
+# ------------------------------------------------------------
+# PROJECT PATHS
+# ------------------------------------------------------------
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MODEL_FOLDER = PROJECT_ROOT / "models"
+
+MODEL_PATH = MODEL_FOLDER / "lightgbm_fraud_model.pkl"
+SCALER_PATH = MODEL_FOLDER / "scaler.pkl"
+METADATA_PATH = MODEL_FOLDER / "model_metadata.json"
+
+ISOLATION_MODEL_PATH = MODEL_FOLDER / "isolation_forest.pkl"
+ANOMALY_REFERENCE_PATH = MODEL_FOLDER / "anomaly_reference.npy"
+
+
+# ------------------------------------------------------------
+# LOAD SAVED MODELS
+# ------------------------------------------------------------
+
+fraud_model = joblib.load(
+    MODEL_PATH
+)
+
+scaler = joblib.load(
+    SCALER_PATH
+)
+
+isolation_model = joblib.load(
+    ISOLATION_MODEL_PATH
+)
+
+anomaly_reference = np.load(
+    ANOMALY_REFERENCE_PATH
+)
+
+
+# ------------------------------------------------------------
+# LOAD MODEL METADATA
+# ------------------------------------------------------------
+
+with open(
+    METADATA_PATH,
+    "r"
+) as file:
+
+    metadata = json.load(file)
+
+
+THRESHOLD = metadata["threshold"]
+
+FEATURES = metadata["features"]
+
+SCALED_COLUMNS = metadata["scaled_columns"]
+
+
+# ============================================================
+# ANOMALY RISK CALCULATION
+# ============================================================
+
+def calculate_anomaly_risk(
+    raw_anomaly_score
+):
+
+    position = np.searchsorted(
+        anomaly_reference,
+        raw_anomaly_score,
+        side="right"
+    )
+
+    anomaly_risk = (
+        position
+        / len(anomaly_reference)
+    ) * 100
+
+    return float(
+        np.clip(
+            anomaly_risk,
+            0,
+            100
+        )
+    )
+
+
+# ============================================================
+# FRAUD EXPLAINABILITY
+# ============================================================
+
+def get_fraud_reason_codes(
+    input_df,
+    top_n=3
+):
+
+    """
+    Get the strongest positive LightGBM feature
+    contributions for the current transaction.
+
+    These values explain which anonymized features
+    pushed the model more toward the fraud class.
+
+    Contributions are model-output contributions,
+    not probabilities or percentages.
+    """
+
+    # LightGBM native feature contributions
+    contributions = (
+        fraud_model.booster_.predict(
+            input_df,
+            pred_contrib=True
+        )
+    )
+
+    # First row contains one transaction
+    contribution_values = (
+        np.asarray(contributions)[0]
+    )
+
+    # Last value is the model bias / expected value,
+    # so exclude it from feature explanations
+    feature_contributions = (
+        contribution_values[:-1]
+    )
+
+
+    positive_drivers = []
+
+
+    for feature, contribution in zip(
+        FEATURES,
+        feature_contributions
+    ):
+
+        contribution = float(
+            contribution
+        )
+
+        # Positive contribution pushes prediction
+        # toward the fraud class
+        if contribution > 0:
+
+            positive_drivers.append(
+                {
+                    "feature": feature,
+
+                    "contribution": contribution,
+
+                    "reason": (
+                        f"{feature} increased "
+                        f"the model's fraud risk score"
+                    )
+                }
+            )
+
+
+    # Highest positive contributions first
+    positive_drivers.sort(
+        key=lambda item: item["contribution"],
+        reverse=True
+    )
+
+
+    # Return only strongest contributors
+    return positive_drivers[:top_n]
+
+
+# ============================================================
+# MAIN TRANSACTION PREDICTION FUNCTION
+# ============================================================
+
+def predict_transaction(
+    transaction_data
+):
+
+    # --------------------------------------------------------
+    # CREATE INPUT DATAFRAME
+    # --------------------------------------------------------
+
+    input_df = pd.DataFrame(
+        [transaction_data],
+        columns=FEATURES
+    )
+
+
+    # --------------------------------------------------------
+    # SCALE TIME AND AMOUNT
+    # --------------------------------------------------------
+
+    input_df[
+        SCALED_COLUMNS
+    ] = scaler.transform(
+        input_df[
+            SCALED_COLUMNS
+        ]
+    )
+
+
+    # ========================================================
+    # LIGHTGBM FRAUD MODEL
+    # ========================================================
+
+    # This is a model score produced by the
+    # SMOTE-trained LightGBM classifier.
+    #
+    # It should not be interpreted as a perfectly
+    # calibrated real-world probability.
+
+    fraud_score = (
+        fraud_model.predict_proba(
+            input_df
+        )[0][1]
+    )
+
+
+    # --------------------------------------------------------
+    # APPLY OPTIMIZED VALIDATION THRESHOLD
+    # --------------------------------------------------------
+
+    prediction = int(
+        fraud_score >= THRESHOLD
+    )
+
+
+    if prediction == 1:
+
+        label = "Fraud"
+
+    else:
+
+        label = "Genuine"
+
+
+    # ========================================================
+    # FRAUD REASON CODES
+    # ========================================================
+
+    if prediction == 1:
+
+        reason_codes = (
+            get_fraud_reason_codes(
+                input_df,
+                top_n=3
+            )
+        )
+
+    else:
+
+        # Reason codes are mainly shown for fraud alerts
+        reason_codes = []
+
+
+    # ========================================================
+    # ISOLATION FOREST ANOMALY DETECTION
+    # ========================================================
+
+    # Lower Isolation Forest decision values mean
+    # more abnormal.
+    #
+    # Multiply by -1 so larger values indicate
+    # greater abnormality.
+
+    raw_anomaly_score = (
+        -isolation_model.decision_function(
+            input_df
+        )[0]
+    )
+
+
+    # Convert raw Isolation Forest score into
+    # percentile-based 0-100 anomaly risk
+
+    anomaly_risk = (
+        calculate_anomaly_risk(
+            raw_anomaly_score
+        )
+    )
+
+
+    # ========================================================
+    # ANOMALY STATUS
+    # ========================================================
+
+    if anomaly_risk >= 98:
+
+        anomaly_status = (
+            "Highly Anomalous"
+        )
+
+    elif anomaly_risk >= 90:
+
+        anomaly_status = (
+            "Unusual"
+        )
+
+    else:
+
+        anomaly_status = (
+            "Normal Pattern"
+        )
+
+
+    # ========================================================
+    # RETURN FINAL PREDICTION RESULT
+    # ========================================================
+
+    return {
+
+        "prediction": prediction,
+
+        "label": label,
+
+
+        # LightGBM fraud score
+        "fraud_score": float(
+            fraud_score
+        ),
+
+        "fraud_score_percent": float(
+            fraud_score * 100
+        ),
+
+
+        # Optimized decision threshold
+        "threshold": float(
+            THRESHOLD
+        ),
+
+
+        # Isolation Forest information
+        "raw_anomaly_score": float(
+            raw_anomaly_score
+        ),
+
+        "anomaly_risk": float(
+            anomaly_risk
+        ),
+
+        "anomaly_status": (
+            anomaly_status
+        ),
+
+
+        # Explainability
+        "reason_codes": reason_codes
+    }

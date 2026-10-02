@@ -1,0 +1,50 @@
+pandas
+numpy
+matplotlib
+scikit-learn
+imbalanced-learn
+lightgbm
+joblib
+fastapi
+uvicorn
+streamlit
+requests
+pydantic
+
+
+# Project run panna required packages ellam define pannuvom. Later GitHub/deployment-la:
+# pip install -r requirements.txt
+
+# ============================================================
+# FraudGuard AI - Project Dependencies
+# Python 3.13.x
+# ============================================================
+
+# Data Processing
+numpy==2.1.3
+pandas==2.2.3
+scipy==1.16.3
+
+# Machine Learning
+scikit-learn==1.6.1
+imbalanced-learn==0.14.2
+lightgbm==4.6.0
+joblib==1.6.0
+
+# Visualization
+matplotlib==3.11.2
+
+# Backend API
+fastapi==0.141.1
+uvicorn==0.54.0
+pydantic==2.13.5
+
+# HTTP / API Communication
+requests==2.34.2
+httpx==0.28.1
+
+# Dashboard
+streamlit==1.64.0
+
+# pip install -r requirements.txt  --> if we run this command, all the above packages will be installed in the virtual environment.
+# & "C:\Program Files\PythonEnvs\fraud-env\Scripts\python.exe" -m pip check --> this command will check if all the packages are installed properly or not. If any package is missing, it will show an error message.
