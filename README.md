@@ -1,126 +1,99 @@
-# Real-Time Credit Card Fraud Detection & Risk Monitoring System
+# 💳 FraudGuard AI
+## Real-Time Credit Card Fraud Detection & Risk Scoring System
 
-## Project Overview
+FraudGuard AI is an end-to-end machine learning project designed to detect suspicious credit card transactions, identify unusual transaction patterns, generate explainable fraud alerts, and convert model predictions into practical risk decisions.
 
-This project is an end-to-end machine learning system designed to detect fraudulent credit card transactions in near real time.
+The system combines a supervised **SMOTE + LightGBM fraud classifier** with an **Isolation Forest anomaly detector**, a **Smart Risk Decision Engine**, and a **Human-in-the-Loop Analyst Case Management workflow**.
 
-The system combines:
-
-- SMOTE for handling class imbalance
-- LightGBM for supervised fraud detection
-- Isolation Forest for anomaly detection
-- FastAPI for real-time prediction APIs
-- SQLite for transaction logging
-- Streamlit for fraud monitoring dashboard
-- A transaction simulator to mimic real-time transaction flow
-
-The dataset used is the Kaggle Credit Card Fraud Detection dataset containing highly imbalanced transaction data.
+The project also includes a FastAPI backend, Streamlit monitoring dashboard, SQLite transaction database, transaction simulator, explainability layer, and automated API tests.
 
 ---
 
-## Problem Statement
+## 🎯 Problem Statement
 
-Credit card fraud detection is challenging because fraudulent transactions represent only a very small percentage of total transactions.
+Credit card fraud datasets are extremely imbalanced, where fraudulent transactions represent only a very small percentage of all transactions.
 
-A traditional model can achieve very high accuracy while still missing many fraud cases.
+Traditional accuracy-based models can therefore appear highly accurate while failing to identify important fraud cases.
 
-Therefore, this project focuses on:
+This project focuses on:
 
-- Precision
-- Recall
-- F1-score
-- Average Precision
-- ROC-AUC
-- False positives
-- False negatives
-
-instead of relying only on accuracy.
-
----
-
-## Dataset
-
-Dataset: Kaggle Credit Card Fraud Detection
-
-Original dataset size:
-
-- Transactions: 284,807
-- Features: 30 input features
-- Target: `Class`
-
-Target values:
-
-- `0` = Genuine transaction
-- `1` = Fraud transaction
-
-After duplicate removal:
-
-- Total transactions: 283,726
-- Genuine transactions: 283,253
-- Fraud transactions: 473
-
-Fraud percentage:
-
-- Approximately 0.1667%
+- Handling severe class imbalance
+- Detecting fraudulent transactions
+- Identifying unusual transaction behavior
+- Optimizing the fraud classification threshold
+- Generating explainable fraud alerts
+- Converting ML predictions into business decisions
+- Supporting human analyst investigation
+- Storing analyst feedback for future model improvement
 
 ---
 
-## Data Preprocessing
+## 🚀 Key Features
 
-The preprocessing pipeline includes:
+### 1. Fraud Detection
 
-1. Removing duplicate transactions
-2. Separating input features and target
-3. Stratified train-validation-test split
-4. Scaling `Time` and `Amount` using RobustScaler
-5. Applying SMOTE only to the training dataset
+The primary fraud detection model uses:
 
-Data split:
-
-- Training set: 80%
-- Validation set: 10%
-- Test set: 10%
-
----
-
-## Models Evaluated
-
-The following models were evaluated:
-
-- Logistic Regression
 - LightGBM
-- Class-Weighted LightGBM
-- SMOTE + LightGBM
-- Isolation Forest
+- SMOTE oversampling
+- Robust train/validation/test separation
+- Threshold optimization using validation data
+- Precision, Recall, F1, Average Precision, and ROC-AUC evaluation
 
-Threshold optimization was performed using validation data.
+The model does not rely only on accuracy because of the highly imbalanced nature of the dataset.
 
 ---
 
-## Final Supervised Model
+### 2. Anomaly Detection
 
-The selected supervised fraud detection model is:
+An Isolation Forest model is trained using genuine training transactions.
 
-**SMOTE + LightGBM**
+It provides an additional anomaly signal that helps identify transactions that may appear unusual even when the supervised fraud classifier predicts them as genuine.
 
-Validation threshold:
+Anomaly risk is represented as a percentile relative to genuine training behavior.
 
-`0.9710`
+Example anomaly states:
 
-Final test performance:
+- Normal Pattern
+- Unusual
+- Highly Anomalous
 
-| Metric | Result |
-|---|---:|
-| Precision | 97.30% |
-| Recall | 76.60% |
-| F1-score | 85.71% |
-| Average Precision | 83.68% |
-| ROC-AUC | 99.11% |
+---
 
-Final test confusion matrix:
+### 3. Smart Risk Decision Engine
+
+Machine learning outputs are converted into operational actions using a rule-based decision engine.
+
+Possible decisions:
+
+- `APPROVE`
+- `MANUAL_REVIEW`
+- `BLOCK`
+
+The decision engine considers:
+
+- Fraud prediction
+- Fraud score
+- Optimized fraud threshold
+- Isolation Forest anomaly risk
+- Anomaly status
+
+Each decision also includes:
+
+- Priority
+- Review requirement
+- Decision reason
+- Recommended action
+
+---
+
+### 4. Explainable Fraud Alerts
+
+Fraud predictions include the strongest positive LightGBM feature contributions.
+
+Example:
 
 ```text
-True Negatives  = 28,325
-False Positives = 1
-False Negatives = 11
-True Positives  = 36
+V14 increased the model's fraud risk score
+V10 increased the model's fraud risk score
+V12 increased the model's fraud risk score
