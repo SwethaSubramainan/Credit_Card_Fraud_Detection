@@ -1,12 +1,16 @@
 # ============================================================
-# FRAUD PREDICTION + ANOMALY DETECTION + EXPLAINABILITY MODULE
+# FRAUD PREDICTION + ANOMALY DETECTION + EXPLAINABILITY
+# + SMART RISK DECISION MODULE
 # ============================================================
 
 from pathlib import Path
 import json
+
 import joblib
 import numpy as np
 import pandas as pd
+
+from src.risk_engine import evaluate_transaction_risk
 
 
 # ------------------------------------------------------------
@@ -16,12 +20,30 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODEL_FOLDER = PROJECT_ROOT / "models"
 
-MODEL_PATH = MODEL_FOLDER / "lightgbm_fraud_model.pkl"
-SCALER_PATH = MODEL_FOLDER / "scaler.pkl"
-METADATA_PATH = MODEL_FOLDER / "model_metadata.json"
+MODEL_PATH = (
+    MODEL_FOLDER
+    / "lightgbm_fraud_model.pkl"
+)
 
-ISOLATION_MODEL_PATH = MODEL_FOLDER / "isolation_forest.pkl"
-ANOMALY_REFERENCE_PATH = MODEL_FOLDER / "anomaly_reference.npy"
+SCALER_PATH = (
+    MODEL_FOLDER
+    / "scaler.pkl"
+)
+
+METADATA_PATH = (
+    MODEL_FOLDER
+    / "model_metadata.json"
+)
+
+ISOLATION_MODEL_PATH = (
+    MODEL_FOLDER
+    / "isolation_forest.pkl"
+)
+
+ANOMALY_REFERENCE_PATH = (
+    MODEL_FOLDER
+    / "anomaly_reference.npy"
+)
 
 
 # ------------------------------------------------------------
@@ -57,11 +79,17 @@ with open(
     metadata = json.load(file)
 
 
-THRESHOLD = metadata["threshold"]
+THRESHOLD = metadata[
+    "threshold"
+]
 
-FEATURES = metadata["features"]
+FEATURES = metadata[
+    "features"
+]
 
-SCALED_COLUMNS = metadata["scaled_columns"]
+SCALED_COLUMNS = metadata[
+    "scaled_columns"
+]
 
 
 # ============================================================
@@ -102,17 +130,14 @@ def get_fraud_reason_codes(
 ):
 
     """
-    Get the strongest positive LightGBM feature
-    contributions for the current transaction.
+    Return the strongest positive LightGBM
+    feature contributions.
 
-    These values explain which anonymized features
-    pushed the model more toward the fraud class.
-
-    Contributions are model-output contributions,
-    not probabilities or percentages.
+    V1-V28 are anonymized dataset features,
+    so we do not assign artificial business
+    meanings to them.
     """
 
-    # LightGBM native feature contributions
     contributions = (
         fraud_model.booster_.predict(
             input_df,
@@ -120,13 +145,14 @@ def get_fraud_reason_codes(
         )
     )
 
-    # First row contains one transaction
     contribution_values = (
-        np.asarray(contributions)[0]
+        np.asarray(
+            contributions
+        )[0]
     )
 
-    # Last value is the model bias / expected value,
-    # so exclude it from feature explanations
+
+    # Last value is LightGBM bias value
     feature_contributions = (
         contribution_values[:-1]
     )
@@ -144,33 +170,36 @@ def get_fraud_reason_codes(
             contribution
         )
 
-        # Positive contribution pushes prediction
-        # toward the fraud class
+
         if contribution > 0:
 
             positive_drivers.append(
                 {
-                    "feature": feature,
+                    "feature":
+                        feature,
 
-                    "contribution": contribution,
+                    "contribution":
+                        contribution,
 
-                    "reason": (
-                        f"{feature} increased "
-                        f"the model's fraud risk score"
-                    )
+                    "reason":
+                        (
+                            f"{feature} increased "
+                            f"the model's fraud risk score"
+                        )
                 }
             )
 
 
-    # Highest positive contributions first
     positive_drivers.sort(
-        key=lambda item: item["contribution"],
+        key=lambda item:
+            item["contribution"],
         reverse=True
     )
 
 
-    # Return only strongest contributors
-    return positive_drivers[:top_n]
+    return positive_drivers[
+        :top_n
+    ]
 
 
 # ============================================================
@@ -208,12 +237,6 @@ def predict_transaction(
     # LIGHTGBM FRAUD MODEL
     # ========================================================
 
-    # This is a model score produced by the
-    # SMOTE-trained LightGBM classifier.
-    #
-    # It should not be interpreted as a perfectly
-    # calibrated real-world probability.
-
     fraud_score = (
         fraud_model.predict_proba(
             input_df
@@ -226,7 +249,8 @@ def predict_transaction(
     # --------------------------------------------------------
 
     prediction = int(
-        fraud_score >= THRESHOLD
+        fraud_score
+        >= THRESHOLD
     )
 
 
@@ -254,7 +278,6 @@ def predict_transaction(
 
     else:
 
-        # Reason codes are mainly shown for fraud alerts
         reason_codes = []
 
 
@@ -262,21 +285,13 @@ def predict_transaction(
     # ISOLATION FOREST ANOMALY DETECTION
     # ========================================================
 
-    # Lower Isolation Forest decision values mean
-    # more abnormal.
-    #
-    # Multiply by -1 so larger values indicate
-    # greater abnormality.
-
     raw_anomaly_score = (
-        -isolation_model.decision_function(
+        -isolation_model
+        .decision_function(
             input_df
         )[0]
     )
 
-
-    # Convert raw Isolation Forest score into
-    # percentile-based 0-100 anomaly risk
 
     anomaly_risk = (
         calculate_anomaly_risk(
@@ -309,46 +324,98 @@ def predict_transaction(
 
 
     # ========================================================
-    # RETURN FINAL PREDICTION RESULT
+    # BUILD BASE ML RESULT
     # ========================================================
 
-    return {
+    result = {
 
-        "prediction": prediction,
+        "prediction":
+            prediction,
 
-        "label": label,
+        "label":
+            label,
 
+        "fraud_score":
+            float(
+                fraud_score
+            ),
 
-        # LightGBM fraud score
-        "fraud_score": float(
-            fraud_score
-        ),
+        "fraud_score_percent":
+            float(
+                fraud_score
+                * 100
+            ),
 
-        "fraud_score_percent": float(
-            fraud_score * 100
-        ),
+        "threshold":
+            float(
+                THRESHOLD
+            ),
 
+        "raw_anomaly_score":
+            float(
+                raw_anomaly_score
+            ),
 
-        # Optimized decision threshold
-        "threshold": float(
-            THRESHOLD
-        ),
+        "anomaly_risk":
+            float(
+                anomaly_risk
+            ),
 
+        "anomaly_status":
+            anomaly_status,
 
-        # Isolation Forest information
-        "raw_anomaly_score": float(
-            raw_anomaly_score
-        ),
-
-        "anomaly_risk": float(
-            anomaly_risk
-        ),
-
-        "anomaly_status": (
-            anomaly_status
-        ),
-
-
-        # Explainability
-        "reason_codes": reason_codes
+        "reason_codes":
+            reason_codes
     }
+
+
+    # ========================================================
+    # SMART RISK DECISION ENGINE
+    # ========================================================
+
+    risk_decision = (
+        evaluate_transaction_risk(
+            result
+        )
+    )
+
+
+    # Add business decision fields
+    # to the final prediction response
+
+    result[
+        "decision"
+    ] = risk_decision[
+        "decision"
+    ]
+
+    result[
+        "priority"
+    ] = risk_decision[
+        "priority"
+    ]
+
+    result[
+        "review_required"
+    ] = risk_decision[
+        "review_required"
+    ]
+
+    result[
+        "decision_reason"
+    ] = risk_decision[
+        "decision_reason"
+    ]
+
+    result[
+        "recommended_action"
+    ] = risk_decision[
+        "recommended_action"
+    ]
+
+
+    # ========================================================
+    # RETURN FINAL RESULT
+    # ========================================================
+
+    return result
